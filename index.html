@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kimbal — International Business Tracker</title>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="preconnect" href="https://docs.google.com">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- D3 and TopoJSON loaded lazily when map renders -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif;}
+body{background:#EDF2FB;color:#1a1a2e;min-height:100vh;}
+:root{
+  --navy:#1A2B5C;--blue:#0057A8;--teal:#00A89D;--orange:#F47920;
+  --green:#27AE60;--red:#E74C3C;--light:#E8F4FD;--gray:#95A5A6;
+  --white:#FFFFFF;--border:#DDE3EF;--bg:#EDF2FB;--text:#1a1a2e;--muted:#6B7A99;
+}
+
+/* SPINNER */
+#spinner-overlay{position:fixed;inset:0;background:rgba(237,242,251,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity .5s;}
+#spinner-overlay.hide{opacity:0;pointer-events:none;}
+.spinner{width:48px;height:48px;border:3px solid #DDE3EF;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner-text{font-size:14px;color:var(--muted);font-weight:500;}
+.spinner-sub{font-size:12px;color:var(--muted);margin-top:6px;opacity:.7;}
+
+/* SHELL */
+.shell{max-width:1400px;margin:0 auto;padding:16px;}
+
+/* HEADER */
+.header{background:var(--white);border-radius:12px;padding:18px 24px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border:0.5px solid var(--border);}
+.header-left{display:flex;align-items:center;gap:16px;}
+.header-logo{width:44px;height:44px;background:var(--navy);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:700;letter-spacing:.02em;flex-shrink:0;}
+.header-title{font-size:22px;font-weight:700;color:var(--navy);letter-spacing:.01em;}
+.header-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.header-right{text-align:right;}
+.live-badge{display:inline-flex;align-items:center;gap:5px;background:var(--light);border:0.5px solid var(--border);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--blue);font-weight:500;margin-bottom:4px;}
+.live-dot{width:7px;height:7px;background:var(--teal);border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.header-date{font-size:12px;color:var(--muted);}
+.refresh-time{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* FILTERS */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;background:var(--white);padding:12px 16px;border-radius:10px;border:0.5px solid var(--border);}
+.filter-label{font-size:13px;color:var(--muted);font-weight:600;margin-right:2px;}
+.filter-sep{width:1px;height:22px;background:var(--border);margin:0 8px;}
+.pill{padding:6px 14px;border-radius:16px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:#F8FAFD;color:var(--muted);transition:all .15s;user-select:none;}
+.pill.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+.pill:hover:not(.active){background:var(--light);border-color:var(--blue);color:var(--blue);}
+
+/* TABS */
+.tab-bar{display:flex;gap:2px;margin-bottom:14px;background:var(--white);border-radius:10px;padding:6px;border:0.5px solid var(--border);overflow-x:auto;}
+.tab-btn{padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s;white-space:nowrap;}
+.tab-btn.active{background:var(--navy);color:#fff;}
+.tab-btn:hover:not(.active){background:var(--light);color:var(--blue);}
+.tab-page{display:none;}
+.tab-page.active{display:block;}
+
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
+@media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:600px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+.kpi-card{background:var(--white);border-radius:10px;padding:16px 18px;border:0.5px solid var(--border);position:relative;overflow:hidden;}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--accent,var(--blue));}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;font-weight:600;}
+.kpi-val{font-size:26px;font-weight:700;color:var(--navy);}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:5px;}
+.kpi-nd{font-size:14px;color:var(--muted);font-style:italic;font-weight:400;}
+.kpi-partial{font-size:10px;color:var(--orange);margin-top:3px;}
+
+/* CHARTS */
+.charts-row{display:grid;gap:12px;margin-bottom:12px;}
+.col2{grid-template-columns:1fr 1fr;}
+.col3{grid-template-columns:1fr 1fr 1fr;}
+.col1{grid-template-columns:1fr;}
+@media(max-width:800px){.col2,.col3{grid-template-columns:1fr;}}
+.chart-card{background:var(--white);border-radius:10px;padding:18px 20px;border:0.5px solid var(--border);}
+.ct{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.cs{font-size:12px;color:var(--muted);margin-bottom:12px;}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;}
+.li{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);}
+.ls{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+
+/* NO DATA */
+.no-data{display:flex;flex-direction:column;align-items:center;justify-content:center;height:140px;color:var(--muted);font-size:13px;gap:8px;}
+.no-data-icon{font-size:30px;opacity:.25;}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto;margin-top:6px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{background:#F4F7FD;color:var(--navy);font-weight:700;padding:11px 14px;text-align:left;border-bottom:2px solid var(--border);white-space:nowrap;font-size:12px;text-transform:uppercase;letter-spacing:.05em;}
+td{padding:10px 14px;border-bottom:0.5px solid var(--border);color:var(--text);vertical-align:middle;font-size:13px;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#F8FAFD;}
+.badge{display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;font-weight:600;}
+.b-green{background:#E1F5EE;color:#085041;}
+.b-blue{background:#E6F1FB;color:#0C447C;}
+.b-orange{background:#FEF3E2;color:#633806;}
+.b-red{background:#FDEAEA;color:#791F1F;}
+.b-gray{background:#F1EFE8;color:#5F5E5A;}
+.b-teal{background:#E1F5EE;color:#0F6E56;}
+.b-hiring{background:#EEEDFE;color:#3C3489;}
+.na{color:var(--muted);font-style:italic;font-size:12px;}
+
+/* CERT BARS */
+.cert-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.cert-name{font-size:12px;color:var(--muted);width:140px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;}
+.cert-bg{flex:1;height:9px;background:#F0F4FA;border-radius:5px;}
+.cert-fill{height:9px;border-radius:5px;transition:width .6s;}
+.cert-pct{font-size:11px;color:var(--muted);width:34px;text-align:right;}
+.cert-legend{display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;padding:10px 12px;background:#F8FAFD;border-radius:8px;border:0.5px solid var(--border);}
+.cert-legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);}
+.cert-legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+/* CERT MATRIX */
+.cert-matrix-wrap{overflow-x:auto;margin-top:8px;}
+.cert-matrix{width:100%;border-collapse:collapse;font-size:13px;}
+.cert-matrix th{background:#F4F7FD;color:var(--navy);font-weight:700;padding:12px 16px;text-align:center;border-bottom:2px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.05em;}
+.cert-matrix th:first-child{text-align:left;}
+.cert-matrix td{padding:14px 16px;border-bottom:0.5px solid var(--border);text-align:center;vertical-align:middle;}
+.cert-matrix td:first-child{text-align:left;font-weight:700;color:var(--navy);font-size:14px;}
+.cert-matrix tr:last-child td{border-bottom:none;}
+.cert-matrix tr:hover td{background:#F8FAFD;}
+.cert-cell{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.cert-icon{font-size:20px;}
+.cert-status-text{font-size:10px;font-weight:600;color:var(--muted);}
+.cert-date{font-size:10px;color:var(--muted);opacity:.8;}
+
+/* TEAM */
+.team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:10px;}
+.team-card{background:#F8FAFD;border:0.5px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;}
+.avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+.tm-name{font-size:14px;font-weight:700;color:var(--navy);}
+.tm-role{font-size:11px;color:var(--muted);margin-top:2px;}
+.tm-loc{font-size:11px;color:var(--muted);}
+.tm-contact{font-size:11px;color:var(--blue);margin-top:2px;}
+.sdot{width:8px;height:8px;border-radius:50%;margin-left:auto;flex-shrink:0;}
+.s-green{background:var(--teal);}
+.s-orange{background:var(--orange);}
+
+/* MAP */
+#map-svg{width:100%;height:210px;}
+.map-tip{position:absolute;background:var(--white);border:0.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;pointer-events:none;display:none;z-index:10;color:var(--text);box-shadow:0 2px 8px rgba(0,0,0,.1);max-width:200px;}
+#map-wrap{position:relative;}
+
+/* EVENTS */
+.ev-row{display:flex;gap:14px;padding:10px 0;border-bottom:0.5px solid var(--border);align-items:flex-start;}
+.ev-row:last-child{border-bottom:none;}
+.ev-dates{font-size:11px;color:var(--muted);width:80px;flex-shrink:0;line-height:1.6;}
+.ev-name{font-size:13px;font-weight:700;color:var(--navy);}
+.ev-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* STAT ROW */
+.stat-row{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;padding:10px 14px;background:#F8FAFD;border-radius:8px;}
+.stat-item{font-size:13px;color:var(--muted);}
+.stat-item span{font-weight:700;color:var(--navy);}
+
+/* SECTION HDR */
+.sec-hdr{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.sec-hdr h3{font-size:15px;font-weight:700;color:var(--navy);}
+.sec-hdr .sec-line{flex:1;height:1px;background:var(--border);}
+
+/* GOAL CARD */
+.goal-card{background:var(--navy);border-radius:10px;padding:16px 20px;color:#fff;display:flex;align-items:center;justify-content:space-between;}
+.goal-title{font-size:12px;opacity:.7;text-transform:uppercase;letter-spacing:.07em;font-weight:600;}
+.goal-val{font-size:28px;font-weight:700;margin-top:4px;}
+.goal-sub{font-size:12px;opacity:.6;margin-top:4px;}
+.goal-badge{background:var(--teal);border-radius:8px;padding:8px 14px;text-align:center;}
+.goal-badge-val{font-size:20px;font-weight:700;}
+.goal-badge-label{font-size:11px;opacity:.8;margin-top:2px;}
+</style>
+</head>
+<body>
+
+<div id="spinner-overlay">
+  <div class="spinner"></div>
+  <div class="spinner-text">Loading KIMBAL Global Business...</div>
+  <div class="spinner-sub">Fetching live data from Google Sheets</div>
+</div>
+
+<div class="shell">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="header-logo">K</div>
+      <div>
+        <div class="header-title">KIMBAL Global Business</div>
+        <div class="header-sub">Global expansion &nbsp;·&nbsp; ANZ &nbsp;·&nbsp; MEA &nbsp;·&nbsp; Europe &nbsp;·&nbsp; Americas &nbsp;·&nbsp; ASEAN &nbsp;·&nbsp; SAARC &nbsp;·&nbsp; Five-year journey to USD 300M (FY27–FY31)</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-badge"><span class="live-dot"></span>Live data</div>
+      <div class="header-date" id="hdr-date">—</div>
+      <div class="refresh-time" id="refresh-time">Last refreshed: —</div>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-bar">
+    <span class="filter-label">Region:</span>
+    <span class="pill active" onclick="setFilter('region','ALL',this)">All</span>
+    <span class="pill" onclick="setFilter('region','ANZ',this)">ANZ</span>
+    <span class="pill" onclick="setFilter('region','MEA',this)">MEA</span>
+    <span class="pill" onclick="setFilter('region','Europe',this)">Europe</span>
+    <span class="pill" onclick="setFilter('region','Americas',this)">Americas</span>
+    <span class="pill" onclick="setFilter('region','ASEAN',this)">ASEAN</span>
+    <span class="pill" onclick="setFilter('region','SAARC',this)">SAARC</span>
+
+  </div>
+
+  <!-- TABS -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="showTab('main',this)">&#9679; Overview</button>
+    <button class="tab-btn" onclick="showTab('leads',this)">Leads Pipeline</button>
+    <button class="tab-btn" onclick="showTab('tenders',this)">Tenders</button>
+    <button class="tab-btn" onclick="showTab('orders',this)">Sales Orders</button>
+    <button class="tab-btn" onclick="showTab('certs',this)">Certifications</button>
+    <button class="tab-btn" onclick="showTab('events',this)">Events</button>
+    <button class="tab-btn" onclick="showTab('team',this)">Team & Hiring</button>
+  </div>
+
+  <!-- ===== MAIN OVERVIEW ===== -->
+  <div id="tab-main" class="tab-page active">
+
+
+    <!-- KPI ROW 1 -->
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Total pipeline</div><div class="kpi-val" id="k-pipeline">—</div><div class="kpi-sub" id="k-pipeline-sub">USD deal value</div></div>
+      <div class="kpi-card" style="--accent:var(--teal)"><div class="kpi-label">Weighted forecast</div><div class="kpi-val" id="k-forecast">—</div><div class="kpi-sub">Win-adjusted USD</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Active leads</div><div class="kpi-val" id="k-leads">—</div><div class="kpi-sub">In pipeline</div></div>
+      <div class="kpi-card" style="--accent:var(--navy)"><div class="kpi-label">Active tenders</div><div class="kpi-val" id="k-tenders">—</div><div class="kpi-sub">Being tracked</div></div>
+      <div class="kpi-card" style="--accent:var(--green)"><div class="kpi-label">Orders booked</div><div class="kpi-val" id="k-orders">—</div><div class="kpi-sub">USD value</div></div>
+    </div>
+    <!-- KPI ROW 2 -->
+    <div class="kpi-grid" style="margin-bottom:14px;">
+      <div class="kpi-card" style="--accent:var(--teal)"><div class="kpi-label">Revenue realized</div><div class="kpi-val" id="k-revenue">—</div><div class="kpi-sub">USD invoiced</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Certifications</div><div class="kpi-val" id="k-certs">—</div><div class="kpi-sub">Planned or in progress</div></div>
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Events attended</div><div class="kpi-val" id="k-events">—</div><div class="kpi-sub">FY27</div></div>
+      <div class="kpi-card" style="--accent:var(--green)"><div class="kpi-label">Team onboarded</div><div class="kpi-val" id="k-team">—</div><div class="kpi-sub">Active members</div></div>
+      <div class="kpi-card" style="--accent:var(--navy)"><div class="kpi-label">Revenue realized</div><div class="kpi-val" id="k-rev-pct">—</div><div class="kpi-sub">vs $300M goal</div></div>
+    </div>
+
+    <!-- CHARTS ROW 1 -->
+    <div class="charts-row col2">
+      <div class="chart-card">
+        <div class="ct">Pipeline by stage</div>
+        <div class="cs">Lead count per stage · USD value where available</div>
+        <div style="position:relative;height:190px;"><canvas id="stageChart" role="img" aria-label="Pipeline by stage chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Pipeline by region</div>
+        <div class="cs">Lead count per region · USD value where available</div>
+        <div style="position:relative;height:190px;"><canvas id="regionChart" role="img" aria-label="Pipeline by region chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- CHARTS ROW 2 -->
+    <div class="charts-row col1">
+      <div class="chart-card">
+        <div class="ct">FY revenue target vs pipeline — $300M by FY31</div>
+        <div class="cs">Blue = weighted pipeline &nbsp;·&nbsp; Orange = annual target &nbsp;·&nbsp; Teal line = cumulative target</div>
+        <div class="legend">
+          <span class="li"><span class="ls" style="background:#0057A8;opacity:.8"></span>Pipeline (weighted)</span>
+          <span class="li"><span class="ls" style="background:#F47920;opacity:.5"></span>Annual target</span>
+          <span class="li"><span class="ls" style="background:#00A89D"></span>Cumulative target</span>
+        </div>
+        <div style="position:relative;height:210px;"><canvas id="fyChart" role="img" aria-label="FY revenue target vs pipeline chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- CHARTS ROW 3 -->
+    <div class="charts-row col2">
+      <div class="chart-card">
+        <div class="ct">Global opportunity map</div>
+        <div class="cs">Countries with active leads or tenders · hover for details</div>
+        <div id="map-wrap">
+          <svg id="map-svg" viewBox="0 0 900 440" role="img" aria-label="World map showing Kimbal active markets"></svg>
+          <div class="map-tip" id="map-tip"></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Tender status breakdown</div>
+        <div class="cs">All tracked tenders including unassigned</div>
+        <div style="position:relative;height:210px;"><canvas id="tenderChart" role="img" aria-label="Tender status donut chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- CHARTS ROW 4 -->
+    <div class="charts-row col2">
+      <div class="chart-card">
+        <div class="ct">SWAN certification progress</div>
+        <div class="cs">Australia · product variants · status-based estimate</div>
+        <div id="cert-bars-main"></div>
+        <div class="cert-legend">
+          <div class="cert-legend-item"><div class="cert-legend-dot" style="background:#27AE60"></div>Completed = 100%</div>
+          <div class="cert-legend-item"><div class="cert-legend-dot" style="background:#0057A8"></div>In Progress = 50%</div>
+          <div class="cert-legend-item"><div class="cert-legend-dot" style="background:#F47920"></div>Planned = 15%</div>
+          <div class="cert-legend-item"><div class="cert-legend-dot" style="background:#95A5A6"></div>Not Started = 5%</div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Events & conferences</div>
+        <div class="cs">FY27 calendar · dates and status</div>
+        <div id="events-main"></div>
+      </div>
+    </div>
+
+    <!-- CHARTS ROW 5 -->
+    <div class="charts-row col2">
+      <div class="chart-card">
+        <div class="ct">Revenue ramp to $300M</div>
+        <div class="cs">Cumulative target trajectory FY27–FY31</div>
+        <div style="position:relative;height:190px;"><canvas id="rampChart" role="img" aria-label="Revenue ramp cumulative chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Current team</div>
+        <div class="cs">Onboarded members · international business unit</div>
+        <div id="team-main"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== LEADS TAB ===== -->
+  <div id="tab-leads" class="tab-page">
+    <div id="leads-kpi-grid" class="kpi-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px;">
+      <div class="kpi-card" style="--accent:var(--navy)"><div class="kpi-label">Total leads</div><div class="kpi-val" id="kl-total">—</div><div class="kpi-sub">All stages</div></div>
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Lead</div><div class="kpi-val" id="kl-lead">—</div><div class="kpi-sub">Stage: Lead</div></div>
+      <div class="kpi-card" style="--accent:var(--teal)"><div class="kpi-label">Discovery</div><div class="kpi-val" id="kl-discovery">—</div><div class="kpi-sub">Stage: Discovery</div></div>
+      <div class="kpi-card" style="--accent:var(--purple,#7F77DD)"><div class="kpi-label">Proposal</div><div class="kpi-val" id="kl-proposal">—</div><div class="kpi-sub">Stage: Proposal</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Negotiation</div><div class="kpi-val" id="kl-negotiation">—</div><div class="kpi-sub">Stage: Negotiation</div></div>
+      <div class="kpi-card" style="--accent:var(--green)"><div class="kpi-label">Closed won</div><div class="kpi-val" id="kl-won">—</div><div class="kpi-sub">Stage: Closed Won</div></div>
+    </div>
+    <div class="charts-row col2" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="ct">Pipeline value by stage</div>
+        <div class="cs">Lead count + USD value where available</div>
+        <div style="position:relative;height:180px;"><canvas id="leadsStageChart" role="img" aria-label="Leads pipeline stage chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Win probability distribution</div>
+        <div class="cs">Leads grouped by win probability</div>
+        <div style="position:relative;height:180px;"><canvas id="leadsWinChart" role="img" aria-label="Win probability chart"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">All leads</div>
+      <div class="cs">Full pipeline register</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Lead ID</th><th>Lead Name</th><th>Client</th><th>Owner</th><th>Country</th><th>Region</th><th>Stage</th><th>Close FY</th><th>Total Value (USD)</th><th>Weighted (USD)</th><th>Win Prob</th></tr></thead><tbody id="leads-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===== TENDERS TAB ===== -->
+  <div id="tab-tenders" class="tab-page">
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px;">
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Total tenders tracked</div><div class="kpi-val" id="kt-total">—</div><div class="kpi-sub">All statuses</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Total est. tender value</div><div class="kpi-val" id="kt-value">—</div><div class="kpi-sub">USD · available values only</div></div>
+      <div class="kpi-card" style="--accent:var(--teal)"><div class="kpi-label">Bids submitted</div><div class="kpi-val" id="kt-bids">—</div><div class="kpi-sub">Active bids</div></div>
+    </div>
+    <div class="charts-row col2" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="ct">Tenders by status</div>
+        <div class="cs">Including unassigned</div>
+        <div style="position:relative;height:180px;"><canvas id="tenderStatusChart" role="img" aria-label="Tenders by status"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Tenders by country</div>
+        <div class="cs">Geographic distribution</div>
+        <div style="position:relative;height:180px;"><canvas id="tenderCountryChart" role="img" aria-label="Tenders by country"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">All tenders</div>
+      <div class="cs">Full tender register</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Tender ID</th><th>Tender Name</th><th>Country</th><th>Region</th><th>Type</th><th>Est. Value (USD)</th><th>Status</th><th>Days to Deadline</th><th>Owner</th></tr></thead><tbody id="tenders-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===== ORDERS TAB ===== -->
+  <div id="tab-orders" class="tab-page">
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px;">
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Total PO value</div><div class="kpi-val" id="ko-total">—</div><div class="kpi-sub">USD · available values</div></div>
+      <div class="kpi-card" style="--accent:var(--teal)"><div class="kpi-label">Total invoiced</div><div class="kpi-val" id="ko-invoiced">—</div><div class="kpi-sub">USD</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Balance in PO</div><div class="kpi-val" id="ko-balance">—</div><div class="kpi-sub">USD remaining</div></div>
+    </div>
+    <div class="charts-row col3" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="ct">Orders by region & country</div>
+        <div class="cs">Distribution of POs</div>
+        <div style="position:relative;height:180px;"><canvas id="orderRegionChart" role="img" aria-label="Orders by region chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">PO value vs invoiced vs balance</div>
+        <div class="cs">Financial comparison</div>
+        <div style="position:relative;height:180px;"><canvas id="orderValueChart" role="img" aria-label="PO value comparison chart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Orders by quarter</div>
+        <div class="cs">When POs were booked</div>
+        <div style="position:relative;height:180px;"><canvas id="orderQuarterChart" role="img" aria-label="Orders by quarter chart"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">All sales orders</div>
+      <div class="cs">Full PO register</div>
+      <div class="tbl-wrap"><table><thead><tr><th>PO Number</th><th>Region</th><th>Country</th><th>Client</th><th>Product</th><th>Application</th><th>Order Type</th><th>Qty</th><th>PO Value (USD)</th><th>Invoiced (USD)</th><th>Balance (USD)</th><th>Delivery Status</th></tr></thead><tbody id="orders-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===== CERTIFICATIONS TAB ===== -->
+  <div id="tab-certs" class="tab-page">
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
+      <div class="kpi-card" style="--accent:var(--green)"><div class="kpi-label">Certificate issued</div><div class="kpi-val" id="kc-issued">—</div><div class="kpi-sub">Approved</div></div>
+      <div class="kpi-card" style="--accent:var(--blue)"><div class="kpi-label">Submitted / in progress</div><div class="kpi-val" id="kc-progress">—</div><div class="kpi-sub">Under review</div></div>
+      <div class="kpi-card" style="--accent:var(--orange)"><div class="kpi-label">Planned</div><div class="kpi-val" id="kc-planned">—</div><div class="kpi-sub">Scheduled</div></div>
+      <div class="kpi-card" style="--accent:var(--red)"><div class="kpi-label">Not started</div><div class="kpi-val" id="kc-notstarted">—</div><div class="kpi-sub">Pending</div></div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">Certification status matrix</div>
+      <div class="cs">5 product variants × 5 certification bodies · dates shown where planned</div>
+      <div id="cert-matrix-wrap"></div>
+    </div>
+  </div>
+
+  <!-- ===== EVENTS TAB ===== -->
+  <div id="tab-events" class="tab-page">
+    <div class="kpi-grid" style="grid-template-columns:repeat(1,1fr);margin-bottom:14px;max-width:280px;">
+      <div class="kpi-card" style="--accent:var(--green)"><div class="kpi-label">Events attended</div><div class="kpi-val" id="ke-attended">—</div><div class="kpi-sub">FY27</div></div>
+    </div>
+    <div class="charts-row col2" style="margin-bottom:12px;">
+      <div class="chart-card">
+        <div class="ct">Events by status</div>
+        <div class="cs">Attended, planned, cancelled etc.</div>
+        <div style="position:relative;height:180px;"><canvas id="eventStatusChart" role="img" aria-label="Events by status"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Events by country & region</div>
+        <div class="cs">Geographic coverage</div>
+        <div style="position:relative;height:180px;"><canvas id="eventRegionChart" role="img" aria-label="Events by region"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">All events & conferences</div>
+      <div class="cs">Full event log · hover over summary column for details</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Event Name</th><th>Region</th><th>Country</th><th>Type</th><th>Start Date</th><th>End Date</th><th>Status</th><th>Attendees</th><th>Est. Cost (USD)</th><th>Leads Generated</th><th>Summary</th></tr></thead><tbody id="events-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ===== TEAM TAB ===== -->
+  <div id="tab-team" class="tab-page">
+    <div class="kpi-grid" style="grid-template-columns:repeat(1,1fr);margin-bottom:14px;max-width:280px;">
+      <div class="kpi-card" style="--accent:var(--navy)"><div class="kpi-label">Total team members</div><div class="kpi-val" id="ktm-total">—</div><div class="kpi-sub">All statuses</div></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:12px;">
+      <div class="ct">Team roster</div>
+      <div class="cs">Onboarded members · international business unit</div>
+      <div id="team-roster"></div>
+      <div class="stat-row" id="team-stats"></div>
+    </div>
+    <div class="chart-card">
+      <div class="ct">Full team details</div>
+      <div class="cs">All members including planned and open roles</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Role ID</th><th>Name</th><th>Location</th><th>Role</th><th>Market Focus</th><th>Hire Type</th><th>Status</th><th>Joining Date</th><th>Reports To</th><th>Contact</th></tr></thead><tbody id="team-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SHEET_ID='2PACX-1vSpt9ROVY-rHM2tXy2StxcADLVfwlf-pMqWBZtYMVDEV_vEQ9iMV5Qtc0kpPFggueugEBqWQmCg1968';
+const BASE=`https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
+const GIDS={leads:'2057415578',tenders:'864866554',orders:'708143025',certs:'2120205924',events:'1939218832',team:'1889967124',settings:'244198433'};
+
+const BLUE='#0057A8',TEAL='#00A89D',ORANGE='#F47920',NAVY='#1A2B5C';
+const GREEN='#27AE60',RED='#E74C3C',GRAY='#95A5A6',PURPLE='#7F77DD';
+const PALETTE=[BLUE,TEAL,ORANGE,GREEN,PURPLE,'#D4537E',RED,GRAY,'#F0997B','#97C459'];
+
+let activeFilters={region:'ALL',stage:'ALL'};
+let DATA={};
+let charts={};
+
+// ---- UTILS ----
+function fmtN(v){
+  if(v===null||v===undefined||v===''||v==='-'||v==='—') return null;
+  const c=v.toString().replace(/[$,£€\s"']/g,'').trim();
+  if(!c||c==='-'||c==='—') return null;
+  const n=parseFloat(c);
+  return isNaN(n)?null:n;
+}
+function fmt(v){
+  if(v===null||v===undefined) return null;
+  const n=typeof v==='number'?v:fmtN(v);
+  if(n===null||n===0) return null;
+  if(n>=1e9) return '$'+(n/1e9).toFixed(1)+'B';
+  if(n>=1e6) return '$'+(n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return '$'+(n/1e3).toFixed(0)+'K';
+  return '$'+Math.round(n).toLocaleString();
+}
+function nd(el,val,sub){
+  if(val===null||val===undefined||val===''){
+    el.innerHTML='<span class="kpi-nd">No data yet</span>';
+  } else { el.textContent=val; }
+  if(sub&&el.nextElementSibling) el.nextElementSibling.textContent=sub;
+}
+function noDataHTML(){return '<div class="no-data"><div class="no-data-icon">⏰</div><div>No data yet</div></div>';}
+function badgeClass(s){
+  if(!s) return 'b-gray';
+  const sl=s.toLowerCase();
+  if(sl.includes('onboard')||sl.includes('won')||sl.includes('attended')||sl.includes('issued')||sl.includes('completed')) return 'b-green';
+  if(sl.includes('lead')||sl.includes('planned')||sl.includes('submitted')||sl.includes('progress')) return 'b-blue';
+  if(sl.includes('negotiat')||sl.includes('review')||sl.includes('pilot')||sl.includes('proposal')) return 'b-orange';
+  if(sl.includes('no go')||sl.includes('lost')||sl.includes('cancel')) return 'b-red';
+  if(sl.includes('hiring')||sl.includes('open')) return 'b-hiring';
+  return 'b-gray';
+}
+function safeChart(id,type,data,options){
+  if(charts[id]) charts[id].destroy();
+  const ctx=document.getElementById(id);
+  if(!ctx) return;
+  charts[id]=new Chart(ctx,{type,data,options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#fff',titleColor:NAVY,bodyColor:'#6B7A99',borderColor:'#DDE3EF',borderWidth:0.5,padding:10,cornerRadius:6,titleFont:{size:13,weight:'bold'},bodyFont:{size:12}}},...options}});
+}
+function showNoData(id){const c=document.getElementById(id);if(c){const p=c.parentElement;p.innerHTML=noDataHTML();}}
+function fmtDate(d){if(!d) return '—';try{const dt=new Date(d);if(isNaN(dt.getTime()))return d;return dt.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}catch(e){return d;}}
+
+// ---- FETCH ----
+async function fetchCSV(gid){
+  const url=`${BASE}&gid=${gid}`;
+  return new Promise(resolve=>{
+    const timer=setTimeout(()=>resolve([]),8000); // 8s timeout per tab
+    Papa.parse(url,{download:true,skipEmptyLines:true,
+      complete:r=>{clearTimeout(timer);resolve(r.data);},
+      error:()=>{clearTimeout(timer);resolve([]);}
+    });
+  });
+}
+
+// ---- PARSERS ----
+function findRows(raw,prefix){return raw.filter(r=>r[0]&&r[0].toString().trim().startsWith(prefix));}
+function findHdrIdx(raw,kw){for(let i=0;i<raw.length;i++){if(raw[i].some(c=>c&&c.toString().toLowerCase().includes(kw.toLowerCase())))return i;}return 1;}
+function findColIdx(hdrRow,kw){return hdrRow.findIndex(c=>c&&c.toString().toLowerCase().includes(kw.toLowerCase()));}
+
+function parseLeads(raw){
+  return findRows(raw,'KGE').map(r=>({
+    id:r[0],name:r[1],client:r[2],owner:r[3],country:r[4],region:r[5],stage:r[6],
+    entryDate:r[7],closeDate:r[8],closeFY:r[9],
+    winProb:fmtN(r[10]),
+    totalVal:fmtN(r[15]),weighted:fmtN(r[16]),
+    booked:fmtN(r[18]),realized:fmtN(r[19])
+  }));
+}
+function parseTenders(raw){
+  return findRows(raw,'TND').map(r=>({
+    id:r[0],country:r[1],region:r[2],name:r[3],authority:r[4],type:r[5],
+    estVal:fmtN(r[7]),status:r[8]||'Not assigned',
+    publishDate:r[10],closeDate:r[11],deadline:r[12],owner:r[13]
+  }));
+}
+function parseOrders(raw){
+  return findRows(raw,'PO').map(r=>({
+    po:r[0],date:r[1],quarter:r[2],region:r[3],country:r[4],client:r[5],
+    clientType:r[6],product:r[7],application:r[8],orderType:r[9],
+    qty:fmtN(r[10]),totalVal:fmtN(r[11]),invoiced:fmtN(r[12]),balance:fmtN(r[13]),
+    delivStatus:r[14],delivDate:r[15]
+  }));
+}
+function parseCerts(raw){
+  const hi=findHdrIdx(raw,'STATUS');
+  return raw.slice(hi+1).filter(r=>r[0]||r[1]).map(r=>({
+    variant:r[0],substage:r[1],planStart:r[2],targetDate:r[3],
+    duration:r[4],actualEnd:r[5],status:r[6],owner:r[7],
+    latestUpdate:r[8],nextAction:r[9],blocker:r[10],priority:r[11]
+  }));
+}
+function parseEvents(raw){
+  const hi=findHdrIdx(raw,'Event Name');
+  return raw.slice(hi+1).filter(r=>r[0]&&r[0].length>2&&!r[0].toString().includes('EVENT')).map(r=>({
+    name:r[0],region:r[1],country:r[2],type:r[3],start:r[4],end:r[5],
+    status:r[6],attendees:r[7],cost:fmtN(r[8]),leads:fmtN(r[9]),summary:r[10]
+  }));
+}
+function parseTeam(raw){
+  const rows=findRows(raw,'INT');
+  // Find contact column dynamically
+  const hi=findHdrIdx(raw,'Role ID');
+  const hdr=raw[hi]||[];
+  const contactIdx=findColIdx(hdr,'contact')||findColIdx(hdr,'email')||12;
+  return rows.map(r=>({
+    id:r[0],name:r[1],location:r[2],role:r[3],focus:r[4],
+    hireType:r[5],status:r[6],joinDate:r[7],plannedJoin:r[8],
+    reportsTo:r[9],notes:r[11],contact:r[contactIdx]||null
+  }));
+}
+function parseSettings(raw){
+  const t={};
+  raw.forEach(r=>{
+    for(let i=0;i<r.length;i++){
+      if(r[i]&&r[i].toString().match(/^FY\d{2}$/)){
+        const fy=r[i].toString();
+        const annual=fmtN(r[i+1]);
+        const cumul=fmtN(r[i+2]);
+        if(annual)t[fy]={annual,cumulative:cumul||annual};
+      }
+    }
+  });
+  return t;
+}
+
+// ---- FILTER ----
+function applyFilters(leads){
+  return leads.filter(l=>{
+    if(activeFilters.region!=='ALL'&&l.region!==activeFilters.region) return false;
+    if(activeFilters.stage!=='ALL'&&l.stage!==activeFilters.stage) return false;
+    return true;
+  });
+}
+
+// ---- KPIs ----
+function renderKPIs(){
+  const leads=applyFilters(DATA.leads||[]);
+  const tenders=DATA.tenders||[];
+  const orders=DATA.orders||[];
+  const events=DATA.events||[];
+  const team=DATA.team||[];
+  const certs=DATA.certs||[];
+  const settings=DATA.settings||{};
+
+  const totalPipe=leads.reduce((a,b)=>a+(b.totalVal||0),0);
+  const totalWt=leads.reduce((a,b)=>a+(b.weighted||0),0);
+  const leadsWithVal=leads.filter(l=>l.totalVal>0).length;
+  const totalBooked=orders.reduce((a,b)=>a+(b.totalVal||0),0);
+  const totalRev=leads.reduce((a,b)=>a+(b.realized||0),0);
+  const activeTenders=tenders.length;
+  const attendedEvents=events.filter(e=>e.status&&e.status.toLowerCase().includes('attend')).length;
+  const onboarded=team.filter(t=>t.status&&t.status.toLowerCase().includes('onboard')).length;
+  const certsIP=certs.filter(c=>c.status&&(c.status.toLowerCase().includes('planned')||c.status.toLowerCase().includes('progress'))).length;
+  const revPct=totalRev>0?Math.round((totalRev/300000000)*100):0;
+
+  // goal banner removed
+
+  const pipeEl=document.getElementById('k-pipeline');
+  if(totalPipe>0){
+    pipeEl.textContent=fmt(totalPipe);
+    const sub=document.getElementById('k-pipeline-sub');
+    if(sub) sub.textContent=leadsWithVal+' of '+leads.length+' leads have values';
+  } else { pipeEl.innerHTML='<span class="kpi-nd">No data yet</span>'; }
+
+  nd(document.getElementById('k-forecast'),totalWt?fmt(totalWt):null);
+  nd(document.getElementById('k-leads'),leads.length||null);
+  nd(document.getElementById('k-tenders'),activeTenders||null);
+  nd(document.getElementById('k-orders'),totalBooked?fmt(totalBooked):null);
+  nd(document.getElementById('k-revenue'),totalRev?fmt(totalRev):null);
+  nd(document.getElementById('k-certs'),certsIP||null);
+  nd(document.getElementById('k-events'),attendedEvents||null);
+  nd(document.getElementById('k-team'),onboarded||null);
+  nd(document.getElementById('k-rev-pct'),revPct>0?revPct+'%':'0%');
+}
+
+// ---- MAIN CHARTS ----
+function renderMainCharts(){
+  const leads=applyFilters(DATA.leads||[]);
+  const tenders=DATA.tenders||[];
+  const settings=DATA.settings||{};
+
+  // Stage chart — count + value
+  const stages=['Lead','Discovery','Proposal','Negotiation','Closed Won'];
+  const stageCounts=stages.map(s=>leads.filter(l=>l.stage===s).length);
+  const stageVals=stages.map(s=>leads.filter(l=>l.stage===s).reduce((a,b)=>a+(b.totalVal||0),0));
+  const hasStage=stageCounts.some(v=>v>0);
+  if(hasStage){
+    safeChart('stageChart','bar',{labels:stages,datasets:[{data:stageCounts,backgroundColor:[BLUE,TEAL,PURPLE,ORANGE,GREEN],borderRadius:4,borderSkipped:false}]},{
+      indexAxis:'y',
+      scales:{x:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:12}},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const i=c.dataIndex;const v=stageVals[i];return ['Leads: '+c.raw, v>0?'Value: '+fmt(v):'Value: Not available'];}}}}
+    });
+  } else showNoData('stageChart');
+
+  // Region chart — count + value
+  const regions=['ANZ','MEA','Europe','Americas','ASEAN','SAARC'];
+  const regCounts=regions.map(r=>leads.filter(l=>l.region===r).length);
+  const regVals=regions.map(r=>leads.filter(l=>l.region===r).reduce((a,b)=>a+(b.totalVal||0),0));
+  const hasReg=regCounts.some(v=>v>0);
+  if(hasReg){
+    const filteredLabels=regions.filter((_,i)=>regCounts[i]>0);
+    const filteredCounts=regCounts.filter(v=>v>0);
+    const filteredVals=regVals.filter((_,i)=>regCounts[i]>0);
+    safeChart('regionChart','doughnut',{labels:filteredLabels,datasets:[{data:filteredCounts,backgroundColor:PALETTE,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},{
+      cutout:'55%',
+      plugins:{
+        legend:{display:true,position:'right',labels:{font:{size:11},color:'#6B7A99',boxWidth:10,padding:8}},
+        tooltip:{callbacks:{label:c=>{const i=c.dataIndex;const v=filteredVals[i];const t=filteredCounts.reduce((a,b)=>a+b,0);return [c.label+': '+c.raw+' lead(s) ('+Math.round(c.raw/t*100)+'%)', v>0?'Value: '+fmt(v):'Value: Not available'];}}}
+      }
+    });
+  } else showNoData('regionChart');
+
+  // FY chart
+  const fys=['FY27','FY28','FY29','FY30','FY31'];
+  const fyTargets=fys.map(f=>settings[f]?settings[f].annual:0);
+  const fyCumul=fys.map(f=>settings[f]?settings[f].cumulative:0);
+  const fyPipe=fys.map(f=>(DATA.leads||[]).filter(l=>l.closeFY===f).reduce((a,b)=>a+(b.weighted||0),0));
+  if(fyTargets.some(v=>v>0)||fyPipe.some(v=>v>0)){
+    safeChart('fyChart','bar',{labels:fys,datasets:[
+      {label:'Pipeline (weighted)',type:'bar',data:fyPipe,backgroundColor:BLUE+'99',borderRadius:4},
+      {label:'FY target',type:'bar',data:fyTargets,backgroundColor:ORANGE+'55',borderRadius:4},
+      {label:'Cumulative target',type:'line',data:fyCumul,borderColor:TEAL,backgroundColor:'transparent',borderWidth:2.5,pointRadius:5,pointBackgroundColor:TEAL,tension:.35,yAxisID:'y2'}
+    ]},{
+      scales:{
+        x:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:12}},border:{display:false}},
+        y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},callback:v=>fmt(v)||'$0'},border:{display:false}},
+        y2:{position:'right',grid:{display:false},ticks:{color:TEAL,font:{size:11},callback:v=>fmt(v)||'$0'},border:{display:false}}
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(fmt(c.raw)||'No data yet')}}}
+    });
+  } else showNoData('fyChart');
+
+  // Tender chart — include 'Not assigned'
+  const allStatuses=[...new Set(tenders.map(t=>t.status||'Not assigned'))];
+  const tVals=allStatuses.map(s=>tenders.filter(t=>(t.status||'Not assigned')===s).length);
+  if(tVals.some(v=>v>0)){
+    safeChart('tenderChart','doughnut',{labels:allStatuses,datasets:[{data:tVals,backgroundColor:PALETTE,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},{
+      cutout:'60%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.raw}}}
+    });
+  } else showNoData('tenderChart');
+
+  // Revenue ramp
+  const rampVals=fys.map(f=>settings[f]?settings[f].cumulative:0);
+  if(rampVals.some(v=>v>0)){
+    safeChart('rampChart','line',{labels:fys,datasets:[{data:rampVals,borderColor:TEAL,backgroundColor:TEAL+'18',borderWidth:2.5,pointRadius:6,pointBackgroundColor:TEAL,tension:.35,fill:true}]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:12}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},callback:v=>fmt(v)||'$0'},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'Cumulative: '+(fmt(c.raw)||'—')}}}
+    });
+  } else showNoData('rampChart');
+}
+
+// ---- CERT BARS (MAIN) ----
+function renderCertBarsMain(){
+  const certs=DATA.certs||[];
+  const el=document.getElementById('cert-bars-main');
+  if(!el) return;
+  // Group by variant — get main stage rows (no substage, has variant name)
+  const variantRows=certs.filter(c=>c.variant&&c.variant.trim()&&!c.variant.includes('NaN')&&c.variant.trim().length>2&&!c.substage);
+  if(variantRows.length===0){el.innerHTML=noDataHTML();return;}
+  const statusPct={'Certificate Issued':100,'Certificates Issued':100,'In Progress':50,'Planned':15,'Not Started':5,'':5};
+  const getColor=s=>{if(!s)return GRAY;const sl=s.toLowerCase();if(sl.includes('issued')||sl.includes('completed'))return GREEN;if(sl.includes('progress'))return ORANGE;if(sl.includes('planned'))return BLUE;return GRAY;};
+  // Get substage status for each variant
+  const getVariantStatus=(variantName)=>{
+    const varIdx=certs.findIndex(c=>c.variant===variantName&&!c.substage);
+    if(varIdx===-1) return {status:'Not Started',pct:5,color:GRAY};
+    // Look at substages after this variant
+    const substages=[];
+    for(let i=varIdx+1;i<certs.length;i++){
+      if(certs[i].variant&&certs[i].variant.trim()&&!certs[i].substage&&certs[i].variant!==variantName) break;
+      if(certs[i].substage) substages.push(certs[i]);
+    }
+    if(substages.length===0) return {status:'Not Started',pct:5,color:GRAY};
+    const hasPlanned=substages.some(s=>s.status&&s.status.toLowerCase().includes('planned'));
+    const hasProgress=substages.some(s=>s.status&&s.status.toLowerCase().includes('progress'));
+    const allIssued=substages.every(s=>s.status&&s.status.toLowerCase().includes('issued'));
+    if(allIssued) return {status:'Certificate Issued',pct:100,color:GREEN};
+    if(hasProgress) return {status:'In Progress',pct:50,color:ORANGE};
+    if(hasPlanned) return {status:'Planned',pct:15,color:BLUE};
+    return {status:'Not Started',pct:5,color:GRAY};
+  };
+  let html='';
+  variantRows.forEach(c=>{
+    const name=(c.variant||'').replace(/[\u2514\u00b7]/g,'').trim();
+    const shortName=name.length>20?name.slice(0,20)+'…':name;
+    const {status,pct,color}=getVariantStatus(c.variant);
+    // Find owner from substages
+    const varIdx=certs.findIndex(r=>r.variant===c.variant&&!r.substage);
+    let owner='';
+    let planDate='';
+    for(let i=varIdx+1;i<certs.length;i++){
+      if(certs[i].variant&&certs[i].variant.trim()&&!certs[i].substage&&certs[i].variant!==c.variant) break;
+      if(certs[i].substage){if(certs[i].owner)owner=certs[i].owner;if(certs[i].planStart&&!planDate)planDate=certs[i].planStart;break;}
+    }
+    html+=`<div class="cert-row"><span class="cert-name" title="${name}">${shortName}</span><div class="cert-bg"><div class="cert-fill" style="width:${pct}%;background:${color}"></div></div><span class="cert-pct">${pct}%</span></div>`;
+  });
+  el.innerHTML=html;
+}
+
+// ---- EVENTS SUMMARY ----
+function renderEventsSummary(){
+  const events=DATA.events||[];
+  const el=document.getElementById('events-main');
+  if(!el) return;
+  if(events.length===0){el.innerHTML=noDataHTML();return;}
+  let html='';
+  events.forEach(e=>{
+    const bc=badgeClass(e.status);
+    const sd=fmtDate(e.start);
+    const ed=fmtDate(e.end);
+    html+=`<div class="ev-row"><div class="ev-dates">${sd}<br>${ed!==sd?'to '+ed:''}</div><div><div class="ev-name">${e.name||'—'}</div><div class="ev-meta">${e.region||''} · ${e.country||''} · ${e.type||''} <span class="badge ${bc}">${e.status||'—'}</span></div></div></div>`;
+  });
+  el.innerHTML=html;
+}
+
+// ---- TEAM MAIN ----
+function renderTeamMain(){
+  const team=DATA.team||[];
+  const el=document.getElementById('team-main');
+  if(!el) return;
+  const onboarded=team.filter(t=>t.status&&t.status.toLowerCase().includes('onboard'));
+  if(onboarded.length===0){el.innerHTML=noDataHTML();return;}
+  const mainAvatarColors=[['#E6F1FB','#0C447C'],['#E1F5EE','#085041'],['#FAEEDA','#633806'],['#EEEDFE','#3C3489'],['#FAECE7','#993C1D']];
+  let html='<div class="team-grid">';
+  onboarded.forEach((t,i)=>{
+    const [bg,col]=mainAvatarColors[i%mainAvatarColors.length];
+    const initials=(t.name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+    html+=`<div class="team-card"><div class="avatar" style="background:${bg};color:${col}">${initials}</div><div style="min-width:0"><div class="tm-name">${t.name||'—'}</div><div class="tm-role">${t.role||'—'}</div><div class="tm-loc">${t.location||''} · ${t.focus||''}</div>${t.contact?`<div class="tm-contact">${t.contact}</div>`:''}</div><span class="sdot s-green"></span></div>`;
+  });
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+// ---- MAP ----
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    if(document.querySelector(`script[src="${src}"]`)){resolve();return;}
+    const s=document.createElement('script');
+    s.src=src;s.onload=resolve;s.onerror=reject;
+    document.head.appendChild(s);
+  });
+}
+async function renderMap(){
+  const leads=DATA.leads||[];
+  const tenders=DATA.tenders||[];
+  const countryToISO={'Australia':'036','South Africa':'710','Nigeria':'566','Iraq':'368','Middle East':'784','United Arab Emirates':'784','UAE':'784','United Kingdom':'826','Germany':'276','United States':'840','USA':'840','Singapore':'702','India':'356','Kenya':'404','Tanzania':'834','Ghana':'288','Egypt':'818','Saudi Arabia':'682','France':'250','Netherlands':'528','Belgium':'056','Spain':'724','Italy':'380','Bangladesh':'050','Pakistan':'586','Sri Lanka':'144','Nepal':'524','Brazil':'076','Mexico':'484','Argentina':'032','Chile':'152','Colombia':'170','Namibia':'516','Zimbabwe':'716','Zambia':'894','Mozambique':'508','Ethiopia':'231','Rwanda':'646','Uganda':'800'};
+  const pipeByISO={};
+  const typeByISO={};
+  leads.forEach(l=>{
+    if(l.country){const iso=countryToISO[l.country];if(iso){pipeByISO[iso]=(pipeByISO[iso]||0)+(l.totalVal||1);typeByISO[iso]=typeByISO[iso]||[];if(!typeByISO[iso].includes('Lead'))typeByISO[iso].push('Lead');}}
+  });
+  tenders.forEach(t=>{
+    if(t.country){const iso=countryToISO[t.country];if(iso){pipeByISO[iso]=(pipeByISO[iso]||0)+1;typeByISO[iso]=typeByISO[iso]||[];if(!typeByISO[iso].includes('Tender'))typeByISO[iso].push('Tender');}}
+  });
+  const maxV=Math.max(...Object.values(pipeByISO),1);
+  // Lazy load D3 and TopoJSON only when needed
+  try {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js');
+  } catch(e) { return; }
+  d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(world=>{
+    const svg=d3.select('#map-svg');
+    const proj=d3.geoNaturalEarth1().scale(140).translate([450,220]);
+    const path=d3.geoPath(proj);
+    svg.selectAll('path').data(topojson.feature(world,world.objects.countries).features).join('path')
+      .attr('d',path)
+      .attr('fill',d=>{
+        const iso=String(d.id).padStart(3,'0');
+        const v=pipeByISO[iso];
+        if(!v) return '#E2EAF4';
+        return d3.interpolate('#B5D4F4',BLUE)(Math.min(v/maxV,1));
+      })
+      .attr('stroke','#fff').attr('stroke-width',0.5)
+      .style('cursor',d=>pipeByISO[String(d.id).padStart(3,'0')]?'pointer':'default')
+      .on('mousemove',(event,d)=>{
+        const iso=String(d.id).padStart(3,'0');
+        if(!pipeByISO[iso]) return;
+        const tip=document.getElementById('map-tip');
+        const rect=document.getElementById('map-wrap').getBoundingClientRect();
+        tip.style.display='block';
+        tip.style.left=Math.min(event.clientX-rect.left+10,rect.width-180)+'px';
+        tip.style.top=Math.max(event.clientY-rect.top-50,5)+'px';
+        const types=typeByISO[iso]||[];
+        const country=Object.entries(countryToISO).find(([,i])=>i===iso)?.[0]||'—';
+        const leadsHere=leads.filter(l=>countryToISO[l.country]===iso);
+        const tendersHere=tenders.filter(t=>countryToISO[t.country]===iso);
+        let html=`<strong>${country}</strong>`;
+        if(leadsHere.length) html+=`<br>Leads: ${leadsHere.length}`;
+        if(tendersHere.length) html+=`<br>Tenders: ${tendersHere.length}`;
+        const totalVal=leadsHere.reduce((a,b)=>a+(b.totalVal||0),0);
+        if(totalVal>0) html+=`<br>Value: ${fmt(totalVal)}`;
+        tip.innerHTML=html;
+      })
+      .on('mouseleave',()=>{document.getElementById('map-tip').style.display='none';});
+  }).catch(()=>{});
+}
+
+// ---- CERT MATRIX ----
+function renderCertMatrix(){
+  const raw=DATA.rawCerts||[];
+  const el=document.getElementById('cert-matrix-wrap');
+  if(!el) return;
+
+  // Hardcoded structure based on exact sheet layout
+  // Each variant: [variantName, [certRowIndices in 0-based raw array]]
+  // Raw array starts from row after header (parseCerts skips to after STATUS header)
+  // We use DATA.certRaw which has all rows
+  const certBodies=['IEC Type Test','NMI Pattern Approval','RCM Certification','RoHS Certification','Telstra Certification'];
+  const variants=[
+    {name:'1 Phase (CAT-01)', certOffset:0},
+    {name:'1 Phase (CAT-03)', certOffset:1},
+    {name:'3 Phase WC', certOffset:2},
+    {name:'CT Connected (LTCT)', certOffset:3},
+    {name:'CT/VT (HTCT)', certOffset:4}
+  ];
+
+  // Build lookup from raw cert data
+  // Look for rows where substage contains cert body name
+  const lookup={};
+  variants.forEach(v=>{lookup[v.name]={};});
+
+  let currentVariant=null;
+  const variantNames=variants.map(v=>v.name);
+
+  (DATA.rawCerts||[]).forEach(c=>{
+    // Detect variant row
+    const v0=(c[0]||'').toString().replace(/[\u2514\u00b7]/g,'').trim();
+    if(variantNames.includes(v0)){
+      currentVariant=v0;
+      return;
+    }
+    // Detect cert row (substage column) — fixed regex layout onto one line
+    const sub=(c[1]||'').toString().replace(/[\u2514\u00b7\n]/g,' ').replace(/Agency:.*/,'').trim();
+    if(currentVariant&&sub){
+      certBodies.forEach(cb=>{
+        const cbKey=cb.toLowerCase().replace(/[^a-z]/g,'');
+        const subKey=sub.toLowerCase().replace(/[^a-z]/g,'');
+        if(subKey.includes(cbKey.slice(0,6))||cbKey.includes(subKey.slice(0,6))){
+          if(!lookup[currentVariant][cb]){
+            lookup[currentVariant][cb]={
+              status:(c[6]||'Not Started').toString().trim()||'Not Started',
+              date:(c[2]||'').toString().trim(),
+              owner:(c[7]||'').toString().trim(),
+              update:(c[8]||'').toString().trim()
+            };
+          }
+        }
+      });
+    }
+  });
+
+  const statusIcon=(s)=>{
+    if(!s||s==='Not Started'||s==='nan') return {icon:'⚠️',color:'#E74C3C',text:'Not Started'};
+    const sl=s.toLowerCase();
+    if(sl.includes('issued')||sl.includes('completed')||sl.includes('approved')) return {icon:'✅',color:'#27AE60',text:'Issued'};
+    if(sl.includes('progress')||sl.includes('submitted')) return {icon:'🔵',color:'#0057A8',text:'In Progress'};
+    if(sl.includes('planned')) return {icon:'🟠',color:'#F47920',text:'Planned'};
+    return {icon:'⚠️',color:'#E74C3C',text:'Not Started'};
+  };
+
+  // KPI counts
+  let issued=0,inprog=0,planned=0,notstarted=0;
+  variants.forEach(v=>{
+    certBodies.forEach(cb=>{
+      const info=lookup[v.name][cb]||{status:'Not Started'};
+      const s=info.status;
+      const sl=s.toLowerCase();
+      if(sl.includes('issued')||sl.includes('approved'))issued++;
+      else if(sl.includes('progress')||sl.includes('submitted'))inprog++;
+      else if(sl.includes('planned'))planned++;
+      else notstarted++;
+    });
+  });
+  const kc_issued=document.getElementById('kc-issued');
+  const kc_prog=document.getElementById('kc-progress');
+  const kc_plan=document.getElementById('kc-planned');
+  const kc_ns=document.getElementById('kc-notstarted');
+  if(kc_issued)kc_issued.textContent=issued;
+  if(kc_prog)kc_prog.textContent=inprog;
+  if(kc_plan)kc_plan.textContent=planned;
+  if(kc_ns)kc_ns.textContent=notstarted;
+
+  // Build matrix HTML
+  const isSubTab=el.id==='cert-matrix-wrap';
+  let html='<div class="cert-matrix-wrap"><table class="cert-matrix"><thead><tr><th>Variant</th>';
+  certBodies.forEach(cb=>html+=`<th>${cb}</th>`);
+  html+='</tr></thead><tbody>';
+
+  variants.forEach(v=>{
+    html+=`<tr><td style="font-weight:700;color:var(--navy);font-size:13px;">${v.name}</td>`;
+    certBodies.forEach(cb=>{
+      const info=lookup[v.name][cb]||{status:'Not Started',date:'',owner:'',update:''};
+      const {icon,text}=statusIcon(info.status);
+      const dateStr=info.date&&info.date!=='nan'?`<div class="cert-date">${fmtDate(info.date)}</div>`:'';
+      const ownerStr=isSubTab&&info.owner&&info.owner!=='nan'?`<div class="cert-date" style="color:var(--blue);">${info.owner}</div>`:'';
+      html+=`<td><div class="cert-cell"><div class="cert-icon">${icon}</div><div class="cert-status-text">${text}</div>${dateStr}${ownerStr}</div></td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+
+  // Add comments table for sub-tab
+  if(isSubTab){
+    html+=`<div style="margin-top:16px;">
+      <div class="ct" style="margin-bottom:8px;">Latest updates & comments</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Variant</th><th>Certification</th><th>Status</th><th>Planned Date</th><th>Owner</th><th>Latest Update</th></tr></thead><tbody>`;
+    variants.forEach(v=>{
+      certBodies.forEach((cb,i)=>{
+        const info=lookup[v.name][cb]||{status:'Not Started',date:'',owner:'',update:''};
+        const {text}=statusIcon(info.status);
+        html+=`<tr>
+          ${i===0?`<td rowspan="${certBodies.length}"><strong>${v.name}</strong></td>`:''}
+          <td>${cb}</td>
+          <td><span class="badge ${info.status&&info.status.toLowerCase().includes('planned')?'b-orange':info.status&&info.status.toLowerCase().includes('progress')?'b-blue':'b-gray'}">${text}</span></td>
+          <td>${info.date&&info.date!=='nan'?fmtDate(info.date):'—'}</td>
+          <td>${info.owner&&info.owner!=='nan'?info.owner:'—'}</td>
+          <td>${info.update&&info.update!=='nan'?info.update:'—'}</td>
+        </tr>`;
+      });
+    });
+    html+=`</tbody></table></div></div>`;
+  }
+
+  el.innerHTML=html;
+}
+
+// Same matrix for overview — uses cert-bars-main container
+function renderCertOverview(){
+  // Reuse same matrix logic but in overview container
+  const el=document.getElementById('cert-bars-main');
+  if(!el) return;
+  const certBodies=['IEC Type Test','NMI Pattern Approval','RCM Certification','RoHS Certification','Telstra Certification'];
+  const variants=['1 Phase (CAT-01)','1 Phase (CAT-03)','3 Phase WC','CT Connected (LTCT)','CT/VT (HTCT)'];
+  const lookup={};
+  variants.forEach(v=>{lookup[v]={};});
+  let currentVariant=null;
+  (DATA.rawCerts||[]).forEach(c=>{
+    const v0=(c[0]||'').toString().replace(/[\u2514\u00b7]/g,'').trim();
+    if(variants.includes(v0)){currentVariant=v0;return;}
+    // Fixed broken regex configuration layout
+    const sub=(c[1]||'').toString().replace(/[\u2514\u00b7\n]/g,' ').replace(/Agency:.*/,'').trim();
+    if(currentVariant&&sub){
+      certBodies.forEach(cb=>{
+        const cbKey=cb.toLowerCase().replace(/[^a-z]/g,'');
+        const subKey=sub.toLowerCase().replace(/[^a-z]/g,'');
+        if(subKey.includes(cbKey.slice(0,6))||cbKey.includes(subKey.slice(0,6))){
+          if(!lookup[currentVariant][cb]){
+            lookup[currentVariant][cb]={
+              status:(c[6]||'Not Started').toString().trim()||'Not Started',
+              date:(c[2]||'').toString().trim()
+            };
+          }
+        }
+      });
+    }
+  });
+
+  const statusIcon=(s)=>{
+    if(!s||s==='Not Started'||s==='nan') return {icon:'⚠️',text:'Not Started'};
+    const sl=s.toLowerCase();
+    if(sl.includes('issued')||sl.includes('completed')) return {icon:'✅',text:'Issued'};
+    if(sl.includes('progress')||sl.includes('submitted')) return {icon:'🔵',text:'In Progress'};
+    if(sl.includes('planned')) return {icon:'🟠',text:'Planned'};
+    return {icon:'⚠️',text:'Not Started'};
+  };
+
+  let html='<div style="overflow-x:auto;"><table class="cert-matrix"><thead><tr><th>Variant</th>';
+  certBodies.forEach(cb=>html+=`<th style="font-size:11px;">${cb}</th>`);
+  html+='</tr></thead><tbody>';
+  variants.forEach(v=>{
+    html+=`<tr><td style="font-weight:700;color:var(--navy);font-size:12px;white-space:nowrap;">${v}</td>`;
+    certBodies.forEach(cb=>{
+      const info=lookup[v][cb]||{status:'Not Started',date:''};
+      const {icon,text}=statusIcon(info.status);
+      const dateStr=info.date&&info.date!=='nan'?`<div style="font-size:9px;color:var(--muted);margin-top:2px;">${fmtDate(info.date)}</div>`:'';
+      html+=`<td><div class="cert-cell"><div style="font-size:16px;">${icon}</div><div style="font-size:10px;font-weight:600;color:var(--muted);">${text}</div>${dateStr}</div></td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  el.innerHTML=html;
+}
+
+// ---- LEADS TABLE ----
+function renderLeadsTable(){
+  const leads=applyFilters(DATA.leads||[]);
+  // Populate leads KPI cards
+  const stageNames=['Lead','Discovery','Proposal','Negotiation','Closed Won'];
+  const ids=['kl-lead','kl-discovery','kl-proposal','kl-negotiation','kl-won'];
+  const el_total=document.getElementById('kl-total');
+  if(el_total) el_total.textContent=leads.length||'—';
+  stageNames.forEach((s,i)=>{
+    const el=document.getElementById(ids[i]);
+    if(el) el.textContent=leads.filter(l=>l.stage===s).length||'0';
+  });
+  const tbody=document.getElementById('leads-tbody');
+  if(!tbody) return;
+  if(leads.length===0){tbody.innerHTML=`<tr><td colspan="11" style="text-align:center;padding:20px;" class="na">No data yet</td></tr>`;return;}
+  tbody.innerHTML=leads.map(l=>`<tr>
+    <td><strong>${l.id||'—'}</strong></td>
+    <td>${l.name||'—'}</td>
+    <td>${l.client||'—'}</td>
+    <td>${l.owner||'—'}</td>
+    <td>${l.country||'—'}</td>
+    <td><span class="badge b-blue">${l.region||'—'}</span></td>
+    <td><span class="badge ${badgeClass(l.stage)}">${l.stage||'—'}</span></td>
+    <td>${l.closeFY&&l.closeFY!=='FY00'?l.closeFY:'—'}</td>
+    <td>${fmt(l.totalVal)||'<span class="na">Not available</span>'}</td>
+    <td>${fmt(l.weighted)||'<span class="na">Not available</span>'}</td>
+    <td>${l.winProb!==null?Math.round(l.winProb)+'%':'<span class="na">Not available</span>'}</td>
+  </tr>`).join('');
+
+  // Leads sub charts
+  const stageList=['Lead','Discovery','Proposal','Negotiation','Closed Won'];
+  const sc=stageList.map(s=>leads.filter(l=>l.stage===s).length);
+  const sv=stageList.map(s=>leads.filter(l=>l.stage===s).reduce((a,b)=>a+(b.totalVal||0),0));
+  if(sc.some(v=>v>0)){
+    safeChart('leadsStageChart','bar',{labels:stageList,datasets:[{data:sc,backgroundColor:PALETTE,borderRadius:4,borderSkipped:false}]},{
+      indexAxis:'y',
+      scales:{x:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:12}},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const v=sv[c.dataIndex];return ['Leads: '+c.raw,v>0?'Value: '+fmt(v):'Value: Not available'];}}}}
+    });
+  } else showNoData('leadsStageChart');
+
+  const buckets=['0–25%','26–50%','51–75%','76–100%'];
+  const bv=[leads.filter(l=>l.winProb!==null&&l.winProb<=25).length,leads.filter(l=>l.winProb!==null&&l.winProb>25&&l.winProb<=50).length,leads.filter(l=>l.winProb!==null&&l.winProb>50&&l.winProb<=75).length,leads.filter(l=>l.winProb!==null&&l.winProb>75).length];
+  if(bv.some(v=>v>0)){
+    safeChart('leadsWinChart','bar',{labels:buckets,datasets:[{data:bv,backgroundColor:[RED,ORANGE,TEAL,GREEN],borderRadius:4}]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:12}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},stepSize:1},border:{display:false}}},
+      plugins:{legend:{display:false}}
+    });
+  } else showNoData('leadsWinChart');
+}
+
+// ---- TENDERS TABLE ----
+function renderTendersTable(){
+  const tenders=DATA.tenders||[];
+  document.getElementById('kt-total').textContent=tenders.length||'—';
+  const tv=tenders.reduce((a,b)=>a+(b.estVal||0),0);
+  document.getElementById('kt-value').textContent=tv?fmt(tv):'—';
+  document.getElementById('kt-bids').textContent=tenders.filter(t=>t.status&&t.status.toLowerCase().includes('submitted')).length||'—';
+
+  const tbody=document.getElementById('tenders-tbody');
+  if(!tbody) return;
+  if(tenders.length===0){tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:20px;" class="na">No data yet</td></tr>`;return;}
+  tbody.innerHTML=tenders.map(t=>`<tr>
+    <td><strong>${t.id||'—'}</strong></td>
+    <td>${t.name||'<span class="na">Not available</span>'}</td>
+    <td>${t.country||'<span class="na">Not available</span>'}</td>
+    <td>${t.region||'<span class="na">Not available</span>'}</td>
+    <td>${t.type||'<span class="na">Not available</span>'}</td>
+    <td>${fmt(t.estVal)||'<span class="na">Not available</span>'}</td>
+    <td><span class="badge ${badgeClass(t.status)}">${t.status||'Not assigned'}</span></td>
+    <td>${t.deadline||'—'}</td>
+    <td>${t.owner||'<span class="na">Not available</span>'}</td>
+  </tr>`).join('');
+
+  const allStatuses=[...new Set(tenders.map(t=>t.status||'Not assigned'))];
+  const tsv=allStatuses.map(s=>tenders.filter(t=>(t.status||'Not assigned')===s).length);
+  if(tsv.some(v=>v>0)){
+    safeChart('tenderStatusChart','doughnut',{labels:allStatuses,datasets:[{data:tsv,backgroundColor:PALETTE,borderWidth:2,borderColor:'#fff',hoverOffset:6}]},{
+      cutout:'60%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.raw}}}
+    });
+  } else showNoData('tenderStatusChart');
+
+  const countries=[...new Set(tenders.map(t=>t.country).filter(Boolean))];
+  const csv=countries.map(c=>tenders.filter(t=>t.country===c).length);
+  if(csv.some(v=>v>0)){
+    safeChart('tenderCountryChart','bar',{labels:countries,datasets:[{data:csv,backgroundColor:PALETTE,borderRadius:4}]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},stepSize:1},border:{display:false}}},
+      plugins:{legend:{display:false}}
+    });
+  } else showNoData('tenderCountryChart');
+}
+
+// ---- ORDERS TABLE ----
+function renderOrdersTable(){
+  const orders=DATA.orders||[];
+  const totalPO=orders.reduce((a,b)=>a+(b.totalVal||0),0);
+  const totalInv=orders.reduce((a,b)=>a+(b.invoiced||0),0);
+  const totalBal=orders.reduce((a,b)=>a+(b.balance||0),0);
+  document.getElementById('ko-total').textContent=totalPO>0?fmt(totalPO):(orders.length>0?'Values pending':'—');
+  document.getElementById('ko-invoiced').textContent=totalInv>0?fmt(totalInv):(orders.length>0?'Values pending':'—');
+  document.getElementById('ko-balance').textContent=totalBal>0?fmt(totalBal):(orders.length>0?'Values pending':'—');
+
+  const tbody=document.getElementById('orders-tbody');
+  if(!tbody) return;
+  if(orders.length===0){tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:20px;" class="na">No data yet</td></tr>`;return;}
+  tbody.innerHTML=orders.map(o=>`<tr>
+    <td><strong>${o.po||'—'}</strong></td>
+    <td>${o.region||'<span class="na">Not available</span>'}</td>
+    <td>${o.country||'<span class="na">Not available</span>'}</td>
+    <td>${o.client||'<span class="na">Not available</span>'}</td>
+    <td>${o.product||'<span class="na">Not available</span>'}</td>
+    <td>${o.application||'<span class="na">Not available</span>'}</td>
+    <td>${o.orderType||'<span class="na">Not available</span>'}</td>
+    <td>${o.qty||'<span class="na">—</span>'}</td>
+    <td>${fmt(o.totalVal)||'<span class="na">Not available</span>'}</td>
+    <td>${fmt(o.invoiced)||'<span class="na">Not available</span>'}</td>
+    <td>${fmt(o.balance)||'<span class="na">Not available</span>'}</td>
+    <td><span class="badge ${badgeClass(o.delivStatus)}">${o.delivStatus||'—'}</span></td>
+  </tr>`).join('');
+
+  const fixedRegions=['ANZ','MEA','Europe','Americas','ASEAN','SAARC'];
+  const rv=fixedRegions.map(r=>orders.filter(o=>o.region===r||o.country===r).length);
+  if(rv.some(v=>v>0)||orders.length>0){
+    safeChart('orderRegionChart','bar',{labels:fixedRegions,datasets:[{data:rv,backgroundColor:PALETTE,borderRadius:4}]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},stepSize:1,precision:0},border:{display:false}}},
+      plugins:{legend:{display:false}}
+    });
+  } else showNoData('orderRegionChart');
+
+  const pos=orders.filter(o=>o.po);
+  if(pos.length>0&&(totalPO>0||totalInv>0||totalBal>0)){
+    safeChart('orderValueChart','bar',{labels:pos.map(o=>o.po),datasets:[
+      {label:'PO Value',data:pos.map(o=>o.totalVal||0),backgroundColor:BLUE+'99',borderRadius:3},
+      {label:'Invoiced',data:pos.map(o=>o.invoiced||0),backgroundColor:TEAL+'99',borderRadius:3},
+      {label:'Balance',data:pos.map(o=>o.balance||0),backgroundColor:ORANGE+'99',borderRadius:3}
+    ]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:10},callback:v=>fmt(v)||'$0'},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(fmt(c.raw)||'Not available')}}}
+    });
+  } else showNoData('orderValueChart');
+
+  const fixedQuarters=['Q1 FY27','Q2 FY27','Q3 FY27','Q4 FY27','Q1 FY28','Q2 FY28','Q3 FY28','Q4 FY28'];
+  const qv=fixedQuarters.map(q=>orders.filter(o=>o.quarter&&o.quarter.toString().trim()===q).length);
+  safeChart('orderQuarterChart','bar',{labels:fixedQuarters,datasets:[{data:qv,backgroundColor:PURPLE,borderRadius:4}]},{
+    scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:10},maxRotation:45},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},stepSize:1,precision:0},border:{display:false}}},
+    plugins:{legend:{display:false}}
+  });
+}
+
+// ---- EVENTS TABLE ----
+function renderEventsTable(){
+  const events=DATA.events||[];
+  document.getElementById('ke-attended').textContent=events.filter(e=>e.status&&e.status.toLowerCase().includes('attend')).length||'—';
+
+  const tbody=document.getElementById('events-tbody');
+  if(!tbody) return;
+  if(events.length===0){tbody.innerHTML=`<tr><td colspan="11" style="text-align:center;padding:20px;" class="na">No data yet</td></tr>`;return;}
+  tbody.innerHTML=events.map(e=>`<tr>
+    <td><strong>${e.name||'—'}</strong></td>
+    <td>${e.region||'—'}</td>
+    <td>${e.country||'—'}</td>
+    <td>${e.type||'—'}</td>
+    <td>${fmtDate(e.start)}</td>
+    <td>${fmtDate(e.end)}</td>
+    <td><span class="badge ${badgeClass(e.status)}">${e.status||'—'}</span></td>
+    <td>${e.attendees||'<span class="na">Not available</span>'}</td>
+    <td>${fmt(e.cost)||'<span class="na">Not available</span>'}</td>
+    <td>${e.leads||'<span class="na">Not available</span>'}</td>
+    <td title="${e.summary||''}" style="cursor:default;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.summary?'Hover to view':'<span class="na">—</span>'}</td>
+  </tr>`).join('');
+
+  const statuses=[...new Set(events.map(e=>e.status).filter(Boolean))];
+  const sv=statuses.map(s=>events.filter(e=>e.status===s).length);
+  if(sv.some(v=>v>0)){
+    safeChart('eventStatusChart','doughnut',{labels:statuses,datasets:[{data:sv,backgroundColor:[GREEN,BLUE,ORANGE,RED,GRAY],borderWidth:2,borderColor:'#fff',hoverOffset:6}]},{
+      cutout:'60%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.raw}}}
+    });
+  } else showNoData('eventStatusChart');
+
+  const countries=[...new Set(events.map(e=>e.country||e.region).filter(Boolean))];
+  const cv=countries.map(c=>events.filter(e=>(e.country||e.region)===c).length);
+  if(cv.some(v=>v>0)){
+    safeChart('eventRegionChart','bar',{labels:countries,datasets:[{data:cv,backgroundColor:PALETTE,borderRadius:4}]},{
+      scales:{x:{grid:{display:false},ticks:{color:'#6B7A99',font:{size:11}},border:{display:false}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{color:'#6B7A99',font:{size:11},stepSize:1},border:{display:false}}},
+      plugins:{legend:{display:false}}
+    });
+  } else showNoData('eventRegionChart');
+}
+
+// ---- TEAM TABLE ----
+function renderTeamTab(){
+  const team=DATA.team||[];
+  document.getElementById('ktm-total').textContent=team.length||'—';
+
+  // Roster — onboarded only
+  const onboarded=team.filter(t=>t.status&&t.status.toLowerCase().includes('onboard'));
+  const rosterEl=document.getElementById('team-roster');
+  const statsEl=document.getElementById('team-stats');
+  const tabAvatarColors=[['#E6F1FB','#0C447C'],['#E1F5EE','#085041'],['#FAEEDA','#633806'],['#EEEDFE','#3C3489'],['#FAECE7','#993C1D']];
+  if(rosterEl){
+    if(onboarded.length===0){rosterEl.innerHTML=noDataHTML();}
+    else{
+      let html='<div class="team-grid">';
+      onboarded.forEach((t,i)=>{
+        const [bg,col]=tabAvatarColors[i%tabAvatarColors.length];
+        const initials=(t.name||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+        html+=`<div class="team-card"><div class="avatar" style="background:${bg};color:${col}">${initials}</div><div style="min-width:0"><div class="tm-name">${t.name||'—'}</div><div class="tm-role">${t.role||'—'}</div><div class="tm-loc">${t.location||''} · ${t.focus||''}</div>${t.contact?`<div class="tm-contact">${t.contact}</div>`:''}</div><span class="sdot s-green"></span></div>`;
+      });
+      html+='</div>';
+      rosterEl.innerHTML=html;
+    }
+  }
+  if(statsEl){
+    const pending=team.filter(t=>!t.status||!t.status.toLowerCase().includes('onboard')).length;
+    statsEl.innerHTML=`<div class="stat-item"><span>${onboarded.length}</span> onboarded</div><div class="stat-item"><span>${pending}</span> pending / planned</div>`;
+  }
+
+  const tbody=document.getElementById('team-tbody');
+  if(tbody){
+    if(team.length===0){tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:20px;" class="na">No data yet</td></tr>`;}
+    else{
+      tbody.innerHTML=team.map(t=>`<tr>
+        <td><strong>${t.id||'—'}</strong></td>
+        <td>${t.name||'—'}</td>
+        <td>${t.location||'—'}</td>
+        <td>${t.role||'—'}</td>
+        <td><span class="badge b-blue">${t.focus||'—'}</span></td>
+        <td>${t.hireType||'—'}</td>
+        <td><span class="badge ${badgeClass(t.status)}">${t.status||'—'}</span></td>
+        <td>${fmtDate(t.joinDate)||'—'}</td>
+        <td>${t.reportsTo||'—'}</td>
+        <td>${t.contact||'<span class="na">Not available</span>'}</td>
+      </tr>`).join('');
+    }
+  }
+}
+
+// ---- TABS ----
+function showTab(name,btn){
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='leads') renderLeadsTable();
+  if(name==='tenders') renderTendersTable();
+  if(name==='orders') renderOrdersTable();
+  if(name==='certs'){renderCertMatrix();}
+  if(name==='events') renderEventsTable();
+  if(name==='team') renderTeamTab();
+}
+
+// ---- FILTERS ----
+function setFilter(type,val,el){
+  activeFilters[type]=val;
+  el.closest('.filter-bar').querySelectorAll('.pill').forEach(p=>{
+    if(p.getAttribute('onclick')&&p.getAttribute('onclick').includes(`'${type}'`)) p.classList.remove('active');
+  });
+  el.classList.add('active');
+  renderKPIs();
+  renderMainCharts();
+  renderLeadsTable();
+}
+
+// ---- LOAD ALL ----
+async function loadAll(){
+  const now=new Date();
+  document.getElementById('hdr-date').textContent=now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  document.getElementById('refresh-time').textContent='Last refreshed: '+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+
+  // Load priority tabs first (leads + settings) for fast first render
+  const spinner=document.getElementById('spinner-overlay');
+  const spinnerText=document.querySelector('.spinner-text');
+
+  // Phase 1 — load critical data first
+  spinnerText.textContent='Loading pipeline data...';
+  const [leadsRaw,settingsRaw]=await Promise.all([
+    fetchCSV(GIDS.leads),fetchCSV(GIDS.settings)
+  ]);
+  DATA.leads=parseLeads(leadsRaw);
+  DATA.settings=parseSettings(settingsRaw);
+  renderKPIs();
+
+  // Hide spinner and show partial dashboard immediately
+  spinner.classList.add('hide');
+  setTimeout(()=>spinner.style.display='none',400);
+
+  // Phase 2 — load remaining tabs in background
+  const [tendersRaw,ordersRaw,certsRaw,eventsRaw,teamRaw]=await Promise.all([
+    fetchCSV(GIDS.tenders),fetchCSV(GIDS.orders),
+    fetchCSV(GIDS.certs),fetchCSV(GIDS.events),fetchCSV(GIDS.team)
+  ]);
+  DATA.tenders=parseTenders(tendersRaw);
+  DATA.orders=parseOrders(ordersRaw);
+  DATA.certs=parseCerts(certsRaw);
+  DATA.rawCerts=certsRaw;
+  DATA.events=parseEvents(eventsRaw);
+  DATA.team=parseTeam(teamRaw);
+
+  // Render all main dashboard sections
+  renderKPIs();
+  renderMainCharts();
+  renderCertOverview();
+  renderEventsSummary();
+  renderTeamMain();
+  renderMap();
+}
+
+loadAll();
+</script>
+</body>
+</html>
